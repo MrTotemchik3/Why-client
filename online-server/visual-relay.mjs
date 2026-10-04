@@ -2,8 +2,9 @@ const UUID=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i,ROOM=/^[a-f\d]{64}$/;
 const number=(n,a,b)=>typeof n==='number'&&Number.isFinite(n)&&n>=a&&n<=b;
 const integer=(n,a,b)=>Number.isInteger(n)&&number(n,a,b);
 export function validState(s){
-  if(!s||typeof s!=='object'||Array.isArray(s))return false;const t=s.target,m=s.mace;
+  if(!s||typeof s!=='object'||Array.isArray(s))return false;const t=s.target,m=s.mace,w=s.wings;
   if(t!=null&&(!UUID.test(t.target??'')||!integer(t.style,0,4)||!number(t.size,.5,2)||!number(t.speed,.2,2.5)||!number(t.glow,.2,1)||!integer(t.quality,0,2)||!integer(t.color,0,0xffffff)))return false;
+  if(w!=null&&(!number(w.size,.55,1.5)||!number(w.speed,.2,2)||!number(w.spread,.45,1.15)||!number(w.glow,.2,1)||!number(w.alpha,.35,1)||!integer(w.membrane,0,0xffffff)||!integer(w.edge,0,0xffffff)))return false;
   return m==null||(integer(m.strike,0,7)&&integer(m.idle,0,4)&&number(m.strength,.2,1.6)&&number(m.idleStrength,0,1.5)&&number(m.tempo,.5,2)&&number(m.idleTempo,.25,2));
 }
 export function validEvent(e){
@@ -13,7 +14,7 @@ export function validEvent(e){
 }
 // Strip unknown fields so one peer cannot multiply response/memory size through extra JSON.
 const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o[k]]));
-const cleanState=s=>({target:s.target==null?null:pick(s.target,['target','style','size','speed','glow','quality','color']),mace:s.mace==null?null:pick(s.mace,['strike','idle','strength','idleStrength','tempo','idleTempo'])});
+const cleanState=s=>({target:s.target==null?null:pick(s.target,['target','style','size','speed','glow','quality','color']),mace:s.mace==null?null:pick(s.mace,['strike','idle','strength','idleStrength','tempo','idleTempo']),wings:s.wings==null?null:pick(s.wings,['size','speed','spread','glow','alpha','membrane','edge'])});
 const cleanEvent=e=>pick(e,['id','target','kind','style','duration','radius','amount','color','glow','seed','x','y','z','height']);
 /** Cosmetic snapshots and a bounded, three-second event ring, isolated by world-room hash. */
 export function createVisualRelay({now=Date.now,maxSessions=20000}={}){

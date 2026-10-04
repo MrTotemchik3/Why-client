@@ -30,3 +30,14 @@ test('relay rate/capacity, session ownership and bounded event ring',()=>{
  let code;for(let i=0;i<301;i++)code=relay.sync(body(b,pb),'ip2')[0];assert.equal(code,429);
  clock+=60001;assert.equal(relay.sync(body(b,pb),'ip2')[0],200);relay.clear();
 });
+test('r7 wings share bounded state; legacy r6 clients and death encoding remain compatible',()=>{
+ const relay=createVisualRelay(),a=randomUUID(),b=randomUUID(),pa=randomUUID(),pb=randomUUID();
+ const wings={size:1,speed:1,spread:1,glow:.7,alpha:.9,membrane:0x221122,edge:0xddaaee};
+ const state={...body(a,pa).state,wings:{...wings,unexpected:'x'.repeat(10000)}};
+ const events=[1,2,3].map((amount,i)=>({...event(i+1,'death'),amount,duration:2300}));
+ assert.equal(relay.sync(body(a,pa,{state,events}),'ip1')[0],200);
+ const result=relay.sync(body(b,pb),'ip2');assert.equal(result[0],200);assert.deepEqual(result[1].players[0].state.wings,wings);assert.deepEqual(result[1].events.map(e=>e.amount),[1,2,3]);
+ for(const key of Object.keys(wings))assert.equal(relay.sync(body(a,pa,{state:{wings:{...wings,[key]:Infinity}}}),'ip1')[0],400);
+ assert.equal(relay.sync(body(a,pa,{state:{target:null,mace:null}}),'ip1')[0],200);
+ relay.clear();
+});
