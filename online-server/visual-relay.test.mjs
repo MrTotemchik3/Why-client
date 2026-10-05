@@ -51,3 +51,35 @@ test('r10 arrows/daggers/meteors and legacy reply downgrade',()=>{
  let reply=r.sync(other,'peer')[1];assert.equal(reply.events[0].style,8);assert.equal(reply.events[0].amount,9);
  reply=r.sync({...other,visualVersion:7},'peer')[1];assert.equal(reply.events[0].style,4);assert.equal(reply.events[0].duration,1500);assert.equal(reply.events[0].amount,5);
 });
+
+test('r11 world snapshots and positional events traverse two real HTTP clients',async()=>{
+ const server=createPresenceServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const url=`http://127.0.0.1:${server.address().port}/v1/visuals/sync`,a=randomUUID(),b=randomUUID(),pa=randomUUID(),pb=randomUUID();
+ const world={values:{clock:[42],aura:[2,1.2,1,8,0xabcdef],trail:[650,4,6],model:[1,1,1,1],cape:[2,.55,0xabcabc],weather:[1,128,1,1,0xffffff],effects:[1,1,1,2,1,.7,0xabcdef,1,0xffabcd,1,1],drone:[0,1,65,2,90,10,15,0],inspect:[.9],block:[1,64,1,0,1,1,.22,.013,.75,1,0xabcdef],sky:[5,1,1,2,1,1,1,1,0,.15,.6,1.2,.7,0,.15]},markers:[{kind:0,target,name:'Метка',x:1,y:66,z:1,color:0xffffff,remaining:3000},{kind:1,target:null,name:'Дом',x:4,y:64,z:2,color:0xabcdef,remaining:120000}]};
+ const events=[0,1,2,3,4,6].map((style,i)=>({...event(i+1,'world'),style,amount:style<3?3:1,duration:style===1?5000:1600}));
+ const send=async payload=>{const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(payload)});return [res.status,await res.json()];};
+ try{
+  assert.equal((await send(body(a,pa,{state:{world},events,visualVersion:11})))[0],200);
+  let [code,reply]=await send(body(b,pb,{visualVersion:11}));assert.equal(code,200);assert.deepEqual(reply.players[0].state.world,world);assert.deepEqual(reply.events.map(e=>e.style),[0,1,2,3,4,6]);
+  const legacy=(await send(body(b,pb,{visualVersion:10})))[1];assert.equal(legacy.players[0].state.world,undefined);assert.equal(legacy.events.length,0);
+  const modern=(await send(body(b,pb,{visualVersion:11})))[1];assert.deepEqual(modern.players[0].state.world,world,'legacy replies must not mutate stored state');
+  assert.equal((await send(body(b,pb,{visualVersion:11,cursor:reply.cursor})))[1].events.length,0);
+  await send(body(a,pa,{state:{world:{values:{clock:[43]},markers:[]}},visualVersion:11}));reply=(await send(body(b,pb,{visualVersion:11})))[1];assert.equal(reply.players[0].state.world.values.aura,undefined);assert.deepEqual(reply.players[0].state.world.markers,[]);
+ }finally{await new Promise(r=>server.close(r));}
+});
+
+test('r11 schema rejects invalid world values, oversized markers and unsafe labels',()=>{
+ const relay=createVisualRelay(),a=randomUUID(),pa=randomUUID();const send=world=>relay.sync(body(a,pa,{state:{world},visualVersion:11}),'ip')[0];
+ const w={values:{aura:[2,1.2,1,8,0xabcdef]},markers:[]};assert.equal(send(w),200);
+ for(const values of [{aura:[3,1.2,1,8,0xabcdef]},{aura:[2,NaN,1,8,0xabcdef]},{aura:[2,1.2,1,8.5,0xabcdef]},{aura:[2,1.2]},{unrecognized:[1]}])assert.equal(send({...w,values}),400);
+ const marker={kind:0,target:null,name:'Home',x:0,y:64,z:0,color:0xffffff,remaining:3000};
+ for(const override of [{name:'x'.repeat(41)},{name:'§k hidden'},{name:'bad\nlabel'},{y:Infinity},{color:-1},{target:'wrong-id'},{remaining:120001}])assert.equal(send({...w,markers:[{...marker,...override}]}),400);
+ assert.equal(send({...w,markers:Array.from({length:15},()=>marker)}),400);assert.equal(send({...w,unexpected:true}),400);
+});
+
+test('r11 reply is byte bounded under saturated rooms and preserves old room isolation',()=>{
+ const relay=createVisualRelay();const world={values:{aura:[2,2,2,8,0xffffff]},markers:Array.from({length:14},(_,i)=>({kind:1,target:null,name:'Я'.repeat(40),x:i,y:64,z:i,color:0xffffff,remaining:120000}))};
+ for(let i=0;i<20;i++)assert.equal(relay.sync(body(randomUUID(),randomUUID(),{state:{world},visualVersion:11,events:Array.from({length:8},(_,j)=>({...event(i*8+j+1),duration:3000}))}),'ip'+i)[0],200);
+ let [code,reply]=relay.sync(body(randomUUID(),randomUUID(),{visualVersion:11}),'viewer');assert.equal(code,200);assert.ok(reply.players.length<=12);assert.ok(Buffer.byteLength(JSON.stringify(reply))<=64000);assert.ok(reply.events.length<=64);
+ reply=relay.sync(body(randomUUID(),randomUUID(),{room:'b'.repeat(64),visualVersion:11}),'viewer2')[1];assert.equal(reply.players.length,0);assert.equal(reply.events.length,0);
+});

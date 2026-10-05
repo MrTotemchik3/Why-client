@@ -1,20 +1,32 @@
+import {readFileSync} from 'node:fs';
+const WORLD_SCHEMA=JSON.parse(readFileSync(new URL('./world-schema.json',import.meta.url),'utf8'));
 const UUID=/^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i,ROOM=/^[a-f\d]{64}$/;
 const number=(n,a,b)=>typeof n==='number'&&Number.isFinite(n)&&n>=a&&n<=b;
 const integer=(n,a,b)=>Number.isInteger(n)&&number(n,a,b);
+export function validWorld(w){
+  if(!w||typeof w!=='object'||Array.isArray(w)||Object.keys(w).length!==2||!w.values||typeof w.values!=='object'||Array.isArray(w.values)||!Array.isArray(w.markers)||w.markers.length>14)return false;
+  for(const [key,data]of Object.entries(w.values)){
+    const ranges=WORLD_SCHEMA[key];if(!ranges||!Array.isArray(data)||data.length!==ranges.length)return false;
+    if(!data.every((n,i)=>number(n,ranges[i][0]-1e-6,ranges[i][1]+1e-6)&&(!ranges[i][2]||Number.isInteger(n))))return false;
+  }
+  return w.markers.every(m=>m&&integer(m.kind,0,1)&&(m.target==null||UUID.test(m.target))&&typeof m.name==='string'&&m.name.length<=40&&!/[\u0000-\u001f\u007f§]/u.test(m.name)&&number(m.x,-30000000,30000000)&&number(m.y,-2048,2048)&&number(m.z,-30000000,30000000)&&integer(m.color,0,0xffffff)&&number(m.remaining,0,120000));
+}
 export function validState(s){
-  if(!s||typeof s!=='object'||Array.isArray(s))return false;const t=s.target,m=s.mace,w=s.wings;
+  if(!s||typeof s!=='object'||Array.isArray(s))return false;const t=s.target,m=s.mace,w=s.wings;if(s.world!=null&&!validWorld(s.world))return false;
   if(t!=null&&(!UUID.test(t.target??'')||!integer(t.style,0,8)||!number(t.size,.5,2)||!number(t.speed,.2,2.5)||!number(t.glow,.2,1)||!integer(t.quality,0,2)||!integer(t.color,0,0xffffff)))return false;
   if(w!=null&&(!number(w.size,.55,1.5)||!number(w.speed,.2,2)||!number(w.spread,.45,1.15)||!number(w.glow,.2,1)||!number(w.alpha,.35,1)||!integer(w.membrane,0,0xffffff)||!integer(w.edge,0,0xffffff)))return false;
   return m==null||(integer(m.strike,0,7)&&integer(m.idle,0,4)&&number(m.strength,.2,1.6)&&number(m.idleStrength,0,1.5)&&number(m.tempo,.5,2)&&number(m.idleTempo,.25,2));
 }
 export function validEvent(e){
-  if(!e||!integer(e.id,1,Number.MAX_SAFE_INTEGER)||!UUID.test(e.target??'')||!['target','mace','death'].includes(e.kind)||!integer(e.delayMs??0,0,3000))return false;
-  const style=e.kind==='target'?8:e.kind==='mace'?5:0,min=e.kind==='target'?850:e.kind==='mace'?250:650,max=e.kind==='target'?3000:e.kind==='mace'?2000:2500;
+  if(!e||!integer(e.id,1,Number.MAX_SAFE_INTEGER)||!UUID.test(e.target??'')||!['target','mace','death','world'].includes(e.kind)||!integer(e.delayMs??0,0,3000))return false;
+  const style=e.kind==='target'?8:e.kind==='mace'?5:e.kind==='world'?6:0,min=e.kind==='target'?850:e.kind==='mace'?250:e.kind==='world'?200:650,max=e.kind==='target'?3000:e.kind==='mace'?2000:e.kind==='world'?5000:2500;
+  if(e.kind==='world'&&!integer(e.amount,1,[0,1,2,6].includes(e.style)?3:1))return false;
   return integer(e.style,0,style)&&number(e.duration,min,max)&&number(e.radius,.5,6)&&integer(e.amount,1,e.kind==='target'?9:32)&&integer(e.color,0,0xffffff)&&number(e.glow,.2,1)&&integer(e.seed,0,1000000)&&number(e.x,-30000000,30000000)&&number(e.y,-2048,2048)&&number(e.z,-30000000,30000000)&&number(e.height,.1,8);
 }
 // Strip unknown fields so one peer cannot multiply response/memory size through extra JSON.
 const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o[k]]));
-const cleanState=s=>({target:s.target==null?null:pick(s.target,['target','style','size','speed','glow','quality','color']),mace:s.mace==null?null:pick(s.mace,['strike','idle','strength','idleStrength','tempo','idleTempo']),wings:s.wings==null?null:pick(s.wings,['size','speed','spread','glow','alpha','membrane','edge'])});
+const cleanWorld=w=>({values:Object.fromEntries(Object.entries(w.values).map(([key,data])=>[key,data.map((n,i)=>Math.max(WORLD_SCHEMA[key][i][0],Math.min(WORLD_SCHEMA[key][i][1],n)))])),markers:w.markers.map(m=>pick(m,['kind','target','name','x','y','z','color','remaining']))});
+const cleanState=s=>({target:s.target==null?null:pick(s.target,['target','style','size','speed','glow','quality','color']),mace:s.mace==null?null:pick(s.mace,['strike','idle','strength','idleStrength','tempo','idleTempo']),wings:s.wings==null?null:pick(s.wings,['size','speed','spread','glow','alpha','membrane','edge']),...(s.world==null?{}:{world:cleanWorld(s.world)})});
 const cleanEvent=e=>pick(e,['id','target','kind','style','duration','radius','amount','color','glow','seed','x','y','z','height']);
 /** Cosmetic snapshots and a bounded, three-second event ring, isolated by world-room hash. */
 export function createVisualRelay({now=Date.now,maxSessions=20000}={}){
@@ -30,14 +42,18 @@ export function createVisualRelay({now=Date.now,maxSessions=20000}={}){
     Object.assign(peer,{at:now(),room:body.room,state:cleanState(body.state)});peers.set(body.session,peer);room.at=now();
     for(const event of body.events){if(event.id<=peer.lastId)continue;peer.lastId=event.id;room.events.push({...cleanEvent(event),owner:body.player,session:body.session,sequence:++room.seq,at:now()-(event.delayMs??0)});}
     if(room.events.length>256)room.events.splice(0,room.events.length-256);
-    const players=[];for(const [session,p]of peers)if(session!==body.session&&p.player!==body.player&&p.room===body.room&&players.length<32)players.push({player:p.player,state:p.state});
-    const events=room.events.filter(e=>e.sequence>body.cursor&&e.session!==body.session&&e.owner!==body.player).slice(-64).map(({at,session,...e})=>({...e,ageMs:now()-at}));
+    const players=[];for(const [session,p]of peers)if(session!==body.session&&p.player!==body.player&&p.room===body.room&&players.length<((body.visualVersion??0)>=11?12:32))players.push({player:p.player,state:p.state});
+    let events=room.events.filter(e=>e.sequence>body.cursor&&e.session!==body.session&&e.owner!==body.player).slice(-64).map(({at,session,...e})=>({...e,ageMs:now()-at}));
+    if((body.visualVersion??0)<11){for(const p of players)if(p.state.world)p.state={...p.state,world:undefined};events=events.filter(e=>e.kind!=='world');}
     // New capabilities are opt-in. Old r6/r7 clients retain their original validated bounds.
     if((body.visualVersion??0)<10){
       for(const p of players)if(p.state.target)p.state={...p.state,target:{...p.state.target,style:Math.min(4,p.state.target.style)}};
       for(const e of events)if(e.kind==='target'){e.style=Math.min(4,e.style);e.duration=Math.min(1500,e.duration);e.amount=Math.min(5,e.amount);}
     }
-    return [200,{cursor:room.seq,players,events}];
+    const reply={cursor:room.seq,players,events};
+    // Keep the UTF-8 response below the client's 64 KiB hard limit, including Cyrillic labels.
+    while(Buffer.byteLength(JSON.stringify(reply),'utf8')>64000){if(players.length)players.pop();else if(events.length)events.shift();else break;}
+    return [200,reply];
   };
   return {sync,sweep,clear:()=>{peers.clear();rooms.clear();}};
 }
