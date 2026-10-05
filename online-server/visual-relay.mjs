@@ -3,14 +3,14 @@ const number=(n,a,b)=>typeof n==='number'&&Number.isFinite(n)&&n>=a&&n<=b;
 const integer=(n,a,b)=>Number.isInteger(n)&&number(n,a,b);
 export function validState(s){
   if(!s||typeof s!=='object'||Array.isArray(s))return false;const t=s.target,m=s.mace,w=s.wings;
-  if(t!=null&&(!UUID.test(t.target??'')||!integer(t.style,0,4)||!number(t.size,.5,2)||!number(t.speed,.2,2.5)||!number(t.glow,.2,1)||!integer(t.quality,0,2)||!integer(t.color,0,0xffffff)))return false;
+  if(t!=null&&(!UUID.test(t.target??'')||!integer(t.style,0,8)||!number(t.size,.5,2)||!number(t.speed,.2,2.5)||!number(t.glow,.2,1)||!integer(t.quality,0,2)||!integer(t.color,0,0xffffff)))return false;
   if(w!=null&&(!number(w.size,.55,1.5)||!number(w.speed,.2,2)||!number(w.spread,.45,1.15)||!number(w.glow,.2,1)||!number(w.alpha,.35,1)||!integer(w.membrane,0,0xffffff)||!integer(w.edge,0,0xffffff)))return false;
   return m==null||(integer(m.strike,0,7)&&integer(m.idle,0,4)&&number(m.strength,.2,1.6)&&number(m.idleStrength,0,1.5)&&number(m.tempo,.5,2)&&number(m.idleTempo,.25,2));
 }
 export function validEvent(e){
   if(!e||!integer(e.id,1,Number.MAX_SAFE_INTEGER)||!UUID.test(e.target??'')||!['target','mace','death'].includes(e.kind)||!integer(e.delayMs??0,0,3000))return false;
-  const style=e.kind==='target'?4:e.kind==='mace'?5:0,min=e.kind==='target'?450:e.kind==='mace'?250:650,max=e.kind==='target'?1500:e.kind==='mace'?2000:2500;
-  return integer(e.style,0,style)&&number(e.duration,min,max)&&number(e.radius,.5,6)&&integer(e.amount,1,e.kind==='target'?5:32)&&integer(e.color,0,0xffffff)&&number(e.glow,.2,1)&&integer(e.seed,0,1000000)&&number(e.x,-30000000,30000000)&&number(e.y,-2048,2048)&&number(e.z,-30000000,30000000)&&number(e.height,.1,8);
+  const style=e.kind==='target'?8:e.kind==='mace'?5:0,min=e.kind==='target'?850:e.kind==='mace'?250:650,max=e.kind==='target'?3000:e.kind==='mace'?2000:2500;
+  return integer(e.style,0,style)&&number(e.duration,min,max)&&number(e.radius,.5,6)&&integer(e.amount,1,e.kind==='target'?9:32)&&integer(e.color,0,0xffffff)&&number(e.glow,.2,1)&&integer(e.seed,0,1000000)&&number(e.x,-30000000,30000000)&&number(e.y,-2048,2048)&&number(e.z,-30000000,30000000)&&number(e.height,.1,8);
 }
 // Strip unknown fields so one peer cannot multiply response/memory size through extra JSON.
 const pick=(o,keys)=>Object.fromEntries(keys.map(k=>[k,o[k]]));
@@ -32,6 +32,11 @@ export function createVisualRelay({now=Date.now,maxSessions=20000}={}){
     if(room.events.length>256)room.events.splice(0,room.events.length-256);
     const players=[];for(const [session,p]of peers)if(session!==body.session&&p.player!==body.player&&p.room===body.room&&players.length<32)players.push({player:p.player,state:p.state});
     const events=room.events.filter(e=>e.sequence>body.cursor&&e.session!==body.session&&e.owner!==body.player).slice(-64).map(({at,session,...e})=>({...e,ageMs:now()-at}));
+    // New capabilities are opt-in. Old r6/r7 clients retain their original validated bounds.
+    if((body.visualVersion??0)<10){
+      for(const p of players)if(p.state.target)p.state={...p.state,target:{...p.state.target,style:Math.min(4,p.state.target.style)}};
+      for(const e of events)if(e.kind==='target'){e.style=Math.min(4,e.style);e.duration=Math.min(1500,e.duration);e.amount=Math.min(5,e.amount);}
+    }
     return [200,{cursor:room.seq,players,events}];
   };
   return {sync,sweep,clear:()=>{peers.clear();rooms.clear();}};

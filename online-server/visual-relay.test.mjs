@@ -41,3 +41,13 @@ test('r7 wings share bounded state; legacy r6 clients and death encoding remain 
  assert.equal(relay.sync(body(a,pa,{state:{target:null,mace:null}}),'ip1')[0],200);
  relay.clear();
 });
+
+// r10 events stay bounded; legacy consumers see only their supported protocol subset.
+test('r10 arrows/daggers/meteors and legacy reply downgrade',()=>{
+ const r=createVisualRelay();const session='10000000-0000-0000-0000-000000000010',owner='20000000-0000-0000-0000-000000000010',room='a'.repeat(64);
+ const event={id:1,target:'30000000-0000-0000-0000-000000000010',kind:'target',style:8,duration:3000,radius:1,amount:9,color:0xabcdef,glow:1,seed:0,x:0,y:64,z:0,height:1.8};
+ const body={session,player:owner,room,cursor:0,state:{target:null,mace:null,wings:null},events:[event],visualVersion:10};assert.equal(r.sync(body,'r10')[0],200);
+ const other={...body,session:'10000000-0000-0000-0000-000000000011',player:'20000000-0000-0000-0000-000000000011',events:[]};
+ let reply=r.sync(other,'peer')[1];assert.equal(reply.events[0].style,8);assert.equal(reply.events[0].amount,9);
+ reply=r.sync({...other,visualVersion:7},'peer')[1];assert.equal(reply.events[0].style,4);assert.equal(reply.events[0].duration,1500);assert.equal(reply.events[0].amount,5);
+});
