@@ -6,6 +6,23 @@ import {createVisualRelay} from './visual-relay.mjs';
 const room='a'.repeat(64),target=randomUUID();
 const event=(id=1,kind='target')=>({id,kind,target,style:kind==='target'?4:0,duration:900,radius:2,amount:3,color:0xb2a3ff,glow:.9,seed:42,x:1,y:64,z:1,height:1.8});
 const body=(session,player,extra={})=>({session,player,room,cursor:0,state:{target:{target,style:4,size:1,speed:1,glow:.9,quality:1,color:0xb2a3ff},mace:{strike:0,idle:0,strength:1,idleStrength:.7,tempo:1,idleTempo:1}},events:[],...extra});
+test('v12 live menu: two HTTP clients, switching, closing, old clients, bounds and TTL',async()=>{
+ let clock=100000;const server=createPresenceServer({now:()=>clock});await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const url=`http://127.0.0.1:${server.address().port}/v1/visuals/sync`,a=randomUUID(),b=randomUUID(),pa=randomUUID(),pb=randomUUID();
+ const menu={open:true,category:6,selected:'Items Edition',cursorX:.4,cursorY:.7,entries:[{name:'Items Edition',on:true}],settings:[{name:'Duration',value:'1.8'}]};
+ const send=async(session,player,state,version=12)=>{const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body(session,player,{state,visualVersion:version}))});return [res.status,await res.json()];};
+ try{
+  assert.equal((await send(a,pa,{menu:{...menu,secret:'ignored'}}))[0],200);
+  assert.deepEqual((await send(b,pb,{}))[1].players[0].state.menu,menu);
+  assert.equal((await send(b,pb,{},11))[1].players[0].state.menu,undefined);
+  assert.deepEqual((await send(b,pb,{}))[1].players[0].state.menu,menu);
+  assert.equal((await send(a,pa,{menu:{...menu,cursorX:2}}))[0],400);
+  assert.equal((await send(a,pa,{menu:{...menu,selected:'bad\nlabel'}}))[0],400);
+  assert.equal((await send(a,pa,{menu:{...menu,entries:Array(13).fill({name:'x',on:true})}}))[0],400);
+  await send(a,pa,{menu:{open:false}});assert.deepEqual((await send(b,pb,{}))[1].players[0].state.menu,{open:false});
+  clock+=6001;assert.equal((await send(b,pb,{}))[1].players.length,0);
+ }finally{await new Promise(r=>server.close(r));}
+});
 test('two real HTTP peers: shared target, mace and death, room isolation, no self echo, dedup and TTL',async()=>{
  let clock=100000;const server=createPresenceServer({now:()=>clock});await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const url=`http://127.0.0.1:${server.address().port}/v1/visuals/sync`,a=randomUUID(),b=randomUUID(),pa=randomUUID(),pb=randomUUID();

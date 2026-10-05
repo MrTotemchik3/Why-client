@@ -15,6 +15,7 @@ export function createPresenceServer({now=Date.now,ttl=90000,maxSessions=20000,t
     const rateKey=ip+(path==='/v1/visuals/sync'?':visual':':presence');
     let r=rates.get(rateKey);if(!r){if(rates.size>=20000)return reply(503,{error:'busy'});r={at:now(),n:0};rates.set(rateKey,r);}if(++r.n>(path==='/v1/visuals/sync'?20000:120))return reply(429,{error:'rate_limit'});
     if(req.method==='GET'&&path==='/health')return reply(200,{ok:true});
+    if(req.method==='GET'&&path==='/v1/capabilities')return reply(200,{visualVersion:12,menu:true});
     if(req.method==='GET'&&path==='/v1/online')return reply(200,{online:count(),ttlSeconds:ttl/1000});
     if(req.method!=='POST'||!['/v1/presence','/v1/visuals/sync'].includes(path))return reply(404,{error:'not_found'});
     if(!String(req.headers['content-type']??'').startsWith('application/json'))return reply(415,{error:'json_required'});
