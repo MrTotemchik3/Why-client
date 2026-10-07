@@ -15,12 +15,12 @@ export function createPresenceServer({now=Date.now,ttl=90000,maxSessions=20000,t
     const rateKey=ip+(path==='/v1/visuals/sync'?':visual':':presence');
     let r=rates.get(rateKey);if(!r){if(rates.size>=20000)return reply(503,{error:'busy'});r={at:now(),n:0};rates.set(rateKey,r);}if(++r.n>(path==='/v1/visuals/sync'?20000:120))return reply(429,{error:'rate_limit'});
     if(req.method==='GET'&&path==='/health')return reply(200,{ok:true});
-    if(req.method==='GET'&&path==='/v1/capabilities')return reply(200,{visualVersion:13,menu:true,customHits:true,customDeaths:true,wingForms:true});
+    if(req.method==='GET'&&path==='/v1/capabilities')return reply(200,{visualVersion:14,menu:true,menuImage:true,menuHands:true,customHits:true,customDeaths:true,wingForms:true,effectStudio:true,customModel:true,drone:true});
     if(req.method==='GET'&&path==='/v1/online')return reply(200,{online:count(),ttlSeconds:ttl/1000});
     if(req.method!=='POST'||!['/v1/presence','/v1/visuals/sync'].includes(path))return reply(404,{error:'not_found'});
     if(!String(req.headers['content-type']??'').startsWith('application/json'))return reply(415,{error:'json_required'});
     let body='',length=0;
-    try{for await(const chunk of req){length+=chunk.length;if(length>(path==='/v1/visuals/sync'?16384:1024)){reply(413,{error:'too_large'});req.destroy();return;}body+=chunk;}body=JSON.parse(body);}catch{return reply(400,{error:'invalid_json'});}
+    try{for await(const chunk of req){length+=chunk.length;if(length>(path==='/v1/visuals/sync'?262144:1024)){reply(413,{error:'too_large'});req.destroy();return;}body+=chunk;}body=JSON.parse(body);}catch{return reply(400,{error:'invalid_json'});}
     if(!body||typeof body!=='object'||Array.isArray(body))return reply(400,{error:'invalid_json'});
     if(path==='/v1/visuals/sync'){const [status,result]=relay.sync(body,ip);return reply(status,result);}
     if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(body.session??'')||typeof body.playing!=='boolean'||typeof body.visuals!=='boolean')return reply(400,{error:'invalid_presence'});
