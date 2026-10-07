@@ -100,3 +100,22 @@ test('r11 reply is byte bounded under saturated rooms and preserves old room iso
  let [code,reply]=relay.sync(body(randomUUID(),randomUUID(),{visualVersion:11}),'viewer');assert.equal(code,200);assert.ok(reply.players.length<=12);assert.ok(Buffer.byteLength(JSON.stringify(reply))<=64000);assert.ok(reply.events.length<=64);
  reply=relay.sync(body(randomUUID(),randomUUID(),{room:'b'.repeat(64),visualVersion:11}),'viewer2')[1];assert.equal(reply.players.length,0);assert.equal(reply.events.length,0);
 });
+
+test('v13 custom hits, deaths and wing forms across real HTTP peers, safe legacy downgrade',async()=>{
+ const server=createPresenceServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));
+ const url=`http://127.0.0.1:${server.address().port}/v1/visuals/sync`,a=randomUUID(),b=randomUUID(),pa=randomUUID(),pb=randomUUID();
+ const wings={size:1,speed:1,spread:1,glow:.7,alpha:.9,membrane:0x12161d,edge:0x69768a,style:0};
+ const impact={...event(1,'impact'),style:0,duration:450,amount:3};
+ const death={...event(2,'custom_death'),style:2,duration:2300,amount:1};
+ const send=async(session,player,state,events=[],version=13)=>{const res=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body(session,player,{state,events,visualVersion:version}))});return [res.status,await res.json()];};
+ try{
+  assert.equal((await send(a,pa,{wings},[impact,death]))[0],200);
+  let [code,reply]=await send(b,pb,{});assert.equal(code,200);assert.deepEqual(reply.players[0].state.wings,wings);assert.deepEqual(reply.events.map(e=>e.kind),['impact','custom_death']);
+  reply=(await send(b,pb,{},[],12))[1];assert.equal(reply.players[0].state.wings,null);assert.equal(reply.events.length,0);
+  reply=(await send(b,pb,{}))[1];assert.deepEqual(reply.players[0].state.wings,wings);assert.equal(reply.events.length,2,'old replies must not mutate the stored modern event ring');
+  for(const override of [{style:3},{amount:6},{duration:449}])assert.equal((await send(a,pa,{wings},[{...impact,id:3,...override}]))[0],400);
+  assert.equal((await send(a,pa,{wings},[{...death,id:3,style:3}]))[0],400);
+  assert.equal((await send(a,pa,{wings:{...wings,style:3}}))[0],400);
+  await send(a,pa,{wings:{...wings,style:1}});reply=(await send(b,pb,{},[],12))[1];assert.equal(reply.players[0].state.wings.style,undefined);assert.equal(reply.players[0].state.wings.size,1);
+ }finally{await new Promise(r=>server.close(r));}
+});

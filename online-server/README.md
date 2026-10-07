@@ -46,3 +46,5 @@ UUID, координаты, параметры и подписанные пол�
 GET /v1/online и POST /v1/presence: активные сессии, heartbeat 30 сек, TTL 90 сек; не подтверждённые уникальные люди. TRUST_PROXY=1 допустим за прокси, заменяющим X-Forwarded-For и закрывающим прямой доступ.
 
 `npm test`: 10 тестов — настоящий HTTP двух участников, все r11 поля/события, совместимость, выключение состояний, комнаты, эхо/повторы, TTL, границы/маркеры, предел байтов, частота/ёмкость.
+
+Protocol v13 extends v12 menu presence with `impact` (styles 0 Mini TNT, 1 Electric Chains, 2 Black Crystals; 450–1500 ms, amount 1–5), `custom_death` (styles 0 Voxel Shatter, 1 Black Portal, 2 Ice Fracture; 650–2500 ms), and optional `wings.style` (0 Black Feathers, 1 Demon, 2 Energy). Clients below v13 do not receive the new event kinds or wing forms; Demon retains its legacy fields. Legacy replies do not mutate stored modern state.
